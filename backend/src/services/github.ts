@@ -26,6 +26,7 @@ interface PushPayload {
     name?: string
     full_name?: string
     owner?: { name?: string; login?: string }
+    default_branch?: string
   }
   commits?: Array<{
     id?: string
@@ -37,6 +38,7 @@ interface PushPayload {
 }
 
 const defaultRepository = `${process.env.GITHUB_OWNER ?? "ARJUNREDDYR2001"}/${process.env.GITHUB_REPO ?? "releaseguard-ai"}`
+const emptyShaPattern = /^0+$/
 
 let latestReleaseState: LatestReleaseState = {
   repository: defaultRepository,
@@ -80,12 +82,33 @@ export function verifyWebhookSignature(rawBody: Buffer | undefined, signatureHea
   return actual.length === expectedBuffer.length && crypto.timingSafeEqual(actual, expectedBuffer)
 }
 
-async function fetchCompareDiff(owner: string, repo: string, before: string, after: string): Promise<string> {
-  if (!before || !after || /^0+$/.test(before)) {
-    return DEMO_DIFF
+function resolveRepository(payload: PushPayload): { fullName: string; owner: string; repo: string; defaultBranch: string } {
+  const fullName = payload.repository?.full_name ?? defaultRepository
+  const [fullNameOwner, fullNameRepo] = fullName.split("/")
+  const owner = payload.repository?.owner?.login ?? payload.repository?.owner?.name ?? process.env.GITHUB_OWNER ?? fullNameOwner
+  const repo = payload.repository?.name ?? process.env.GITHUB_REPO ?? fullNameRepo
+  const defaultBranch = payload.repository?.default_branch ?? process.env.GITHUB_BASE_REF ?? "main"
+
+  if (!owner || !repo) {
+    throw new Error("GitHub repository owner/name could not be resolved from webhook payload or environment")
   }
 
-  const url = `https://api.github.com/repos/${owner}/${repo}/compare/${before}...${after}`
+  return { fullName: `${owner}/${repo}`, owner, repo, defaultBranch }
+}
+
+function resolveCompareBase(before: string, defaultBranch: string): string {
+  if (!before || emptyShaPattern.test(before)) {
+    return defaultBranch
+  }
+  return before
+}
+
+async function fetchCompareDiff(owner: string, repo: string, base: string, after: string): Promise<string> {
+  if (!base || !after) {
+    throw new Error("GitHub compare requires both before/base and after SHAs")
+  }
+
+  const url = `https://api.github.com/repos/${owner}/${repo}/compare/${base}...${after}`
   const headers: Record<string, string> = {
     Accept: "application/vnd.github.v3.diff",
     "User-Agent": "releaseguard-ai",
@@ -103,9 +126,9 @@ async function fetchCompareDiff(owner: string, repo: string, before: string, aft
   return response.text()
 }
 
-async function fetchCompareMetadata(owner: string, repo: string, before: string, after: string): Promise<GitHubCompareResponse> {
-  if (!before || !after || /^0+$/.test(before)) {
-    return {}
+async function fetchCompareMetadata(owner: string, repo: string, base: string, after: string): Promise<GitHubCompareResponse> {
+  if (!base || !after) {
+    throw new Error("GitHub compare metadata requires both before/base and after SHAs")
   }
 
   const headers: Record<string, string> = {
@@ -117,7 +140,7 @@ async function fetchCompareMetadata(owner: string, repo: string, before: string,
     headers.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`
   }
 
-  const response = await fetch(`https://api.github.com/repos/${owner}/${repo}/compare/${before}...${after}`, { headers })
+  const response = await fetch(`https://api.github.com/repos/${owner}/${repo}/compare/${base}...${after}`, { headers })
   if (!response.ok) {
     throw new Error(`GitHub compare metadata failed with ${response.status}`)
   }
@@ -136,13 +159,18 @@ function extractWebhookFiles(payload: PushPayload): string[] {
 }
 
 export async function processPushWebhook(payload: PushPayload): Promise<LatestReleaseState> {
-  const fullName = payload.repository?.full_name ?? defaultRepository
-  const [owner, repo] = fullName.split("/")
+  const { fullName, owner, repo, defaultBranch } = resolveRepository(payload)
   const branch = payload.ref?.replace("refs/heads/", "") ?? "main"
   const before = payload.before ?? ""
   const after = payload.after ?? "8f31c2a"
+  const compareBase = resolveCompareBase(before, defaultBranch)
 
-  logger.info("Webhook received", { repository: fullName, branch, commit: after.slice(0, 7) })
+  logger.info("[GitHub Webhook] Push received", {
+    repository: fullName,
+    branch,
+    before,
+    after,
+  })
 
   latestReleaseState = {
     latestWebhookEvent: payload as Record<string, unknown>,
@@ -156,18 +184,27 @@ export async function processPushWebhook(payload: PushPayload): Promise<LatestRe
   }
 
   try {
+    logger.info("[GitHub] Fetching compare diff...", {
+      repository: fullName,
+      compare: `${compareBase}...${after}`,
+      before,
+      after,
+      baseReason: emptyShaPattern.test(before) ? "new-branch-default-base" : "webhook-before-sha",
+    })
+
     const [diff, metadata] = await Promise.all([
-      fetchCompareDiff(owner, repo, before, after),
-      fetchCompareMetadata(owner, repo, before, after),
+      fetchCompareDiff(owner, repo, compareBase, after),
+      fetchCompareMetadata(owner, repo, compareBase, after),
     ])
 
-    const changedFiles =
-      metadata.files?.map((file) => file.filename).filter((file): file is string => Boolean(file)) ??
-      extractChangedFiles(diff)
+    const metadataFiles = metadata.files?.map((file) => file.filename).filter((file): file is string => Boolean(file)) ?? []
+    const changedFiles = metadataFiles.length ? metadataFiles : extractChangedFiles(diff)
+    logger.info("[GitHub] Changed files", { repository: fullName, branch, changedFiles })
+
     const analysis = await analyzeChangeWithGemini(diff || DEMO_DIFF)
     const testRecommendations = identifyImpactedTests(changedFiles.length ? changedFiles : analysis.affectedFiles)
     const scenario = diff.toLowerCase().includes("failure-scenario") ? "failure" : "success"
-    const finalAnalysis = scenario === "success" ? { ...analysis, riskScore: 18, riskLevel: "LOW" as const } : analysis
+    const finalAnalysis = analysis
     const generatedTests = await generateTests(finalAnalysis, diff || DEMO_DIFF)
     const qualityResults = await runQualityPipelineWithGeneratedTests(scenario, generatedTests.tests)
     const rootCause = qualityResults.rootCause
@@ -192,40 +229,34 @@ export async function processPushWebhook(payload: PushPayload): Promise<LatestRe
 
     logger.info("Webhook pipeline completed", {
       repository: fullName,
+      branch,
+      commit: after.slice(0, 7),
       changedFiles,
       decision: releaseDecision.decision,
     })
 
     return latestReleaseState
   } catch (error) {
-    logger.error("Webhook pipeline failed - storing deterministic demo result", {
-      error: error instanceof Error ? error.message : "unknown",
-    })
-
+    const message = error instanceof Error ? error.message : "unknown"
     const changedFiles = extractWebhookFiles(payload)
-    const diff = DEMO_DIFF
-    const analysis = await analyzeChangeWithGemini(diff)
-    const testRecommendations = identifyImpactedTests(changedFiles.length ? changedFiles : analysis.affectedFiles)
-    const generatedTests = await generateTests({ ...analysis, riskScore: 18, riskLevel: "LOW" }, diff)
-    const qualityResults = await runQualityPipelineWithGeneratedTests("success", generatedTests.tests)
-    const rootCause = qualityResults.rootCause
-    const releaseDecision = decideRelease({ analysis: { ...analysis, riskScore: 18, riskLevel: "LOW" }, qualityResults, rootCause })
+    logger.error("Webhook pipeline failed", {
+      repository: fullName,
+      branch,
+      before,
+      after,
+      error: message,
+    })
 
     latestReleaseState = {
       latestWebhookEvent: payload as Record<string, unknown>,
       repository: fullName,
       branch,
       commitSha: after,
-      changedFiles: changedFiles.length ? changedFiles : analysis.affectedFiles,
-      diff,
-      analysis: { ...analysis, riskScore: 18, riskLevel: "LOW" },
-      testRecommendations,
-      qualityResults,
-      rootCause,
-      releaseDecision,
-      generatedTests,
+      changedFiles,
+      diff: "",
+      error: message,
       timestamp: new Date().toISOString(),
-      status: "analyzed",
+      status: "failed",
     }
 
     return latestReleaseState

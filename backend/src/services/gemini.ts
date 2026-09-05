@@ -15,6 +15,31 @@ const defaultRecommendedChecks = {
 
 export function demoChangeAnalysis(diff: string): ChangeAnalysis {
   const affectedFiles = extractChangedFiles(diff)
+  const diffLines = diff.split("\n")
+  const removedLegacyLocator = diffLines.some((line) => line.startsWith("-") && line.includes('id="pay-now"'))
+  const addedStableLocator = diffLines.some((line) => line.startsWith("+") && line.includes('data-testid="complete-payment"'))
+  const locatorChanged = affectedFiles.includes("demo-app/payment.html") && removedLegacyLocator && addedStableLocator
+
+  if (locatorChanged) {
+    return {
+      riskScore: 42,
+      riskLevel: "MEDIUM",
+      summary:
+        "Payment button locator changed in the demo checkout fixture. The existing Playwright checkout test still targets #pay-now and should be healed to the new complete-payment test id.",
+      affectedFiles,
+      affectedCapabilities: ["Payment", "Checkout"],
+      businessImpact: ["Customers use the checkout payment action.", "UI automation can become stale when payment locators change."],
+      existingTestsToUpdate: ["demo-app/checkout.spec.ts"],
+      newTestsToGenerate: ["checkout payment locator regression", "self-healed Playwright checkout flow"],
+      recommendedChecks: {
+        ...defaultRecommendedChecks,
+        unit: false,
+        api: false,
+      },
+      reasoning:
+        "The diff replaces the legacy #pay-now selector with a stable data-testid on the payment button, so UI coverage and self-healing are the relevant checks.",
+    }
+  }
 
   return {
     riskScore: 68,

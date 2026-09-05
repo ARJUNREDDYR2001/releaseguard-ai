@@ -1,7 +1,7 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
-import type { Decision } from "@/lib/mock-data"
+import { useCallback, useEffect, useMemo, useState } from "react"
+import type { Decision, ReleaseMeta } from "@/lib/mock-data"
 import {
   type BackendAnalysis,
   type BackendDecision,
@@ -34,9 +34,11 @@ export default function Page() {
   const [generatedTests, setGeneratedTests] = useState<BackendGeneratedTest[]>([])
   const [previewContent, setPreviewContent] = useState("")
   const [diff, setDiff] = useState("")
+  const [latestState, setLatestState] = useState<BackendLatest>()
   const [isLoading, setIsLoading] = useState(false)
 
-  const applyLatest = (latest: BackendLatest) => {
+  const applyLatest = useCallback((latest: BackendLatest) => {
+    setLatestState(latest)
     setDiff(latest.diff)
     setAnalysis(latest.analysis)
     setQualityResults(latest.qualityResults)
@@ -45,11 +47,28 @@ export default function Page() {
     if (latest.releaseDecision?.decision) {
       setDecision(latest.releaseDecision.decision)
     }
-  }
+  }, [])
 
   useEffect(() => {
-    releaseGuardApi.latest().then(applyLatest).catch(() => undefined)
-  }, [])
+    let cancelled = false
+
+    const fetchLatest = () => {
+      releaseGuardApi
+        .latest()
+        .then((latest) => {
+          if (!cancelled) applyLatest(latest)
+        })
+        .catch(() => undefined)
+    }
+
+    fetchLatest()
+    const interval = window.setInterval(fetchLatest, 4000)
+
+    return () => {
+      cancelled = true
+      window.clearInterval(interval)
+    }
+  }, [applyLatest])
 
   const toggle = () => setDecision((d) => (d === "GO" ? "REVIEW" : d === "REVIEW" ? "NO-GO" : "GO"))
 
@@ -97,6 +116,18 @@ export default function Page() {
   const selfHealingData = qualityResults ? mapQualityToSelfHealing(qualityResults) : undefined
   const runtimeData = qualityResults ? mapQualityToRuntimeHealth(qualityResults) : undefined
   const rootCauseData = qualityResults ? mapRootCause(qualityResults.rootCause) : undefined
+  const headerMeta: ReleaseMeta | undefined = latestState
+    ? {
+        release:
+          latestState.status === "received"
+            ? "Webhook received"
+            : latestState.status === "failed"
+              ? "Webhook failed"
+              : "Latest change",
+        branch: latestState.branch,
+        commit: latestState.commitSha.slice(0, 7),
+      }
+    : undefined
 
   return (
     <div className="flex min-h-screen bg-background">
@@ -105,6 +136,7 @@ export default function Page() {
       <div className="flex min-w-0 flex-1 flex-col">
         <ReleaseHeader
           decision={decision}
+          releaseMeta={headerMeta}
           onToggleDecision={toggle}
           onAnalyzeChange={analyzeChange}
           onRunChecks={runChecks}

@@ -188,6 +188,7 @@ export interface LatestReleaseState {
   commitSha: string
   changedFiles: string[]
   diff: string
+  error?: string
   analysis?: ChangeAnalysis
   testRecommendations?: TestRecommendation[]
   qualityResults?: QualityResults

@@ -2,17 +2,19 @@
 
 import { GitBranch, GitCommitHorizontal, Sparkles, PlayCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { releaseMeta, type Decision } from "@/lib/mock-data"
+import { releaseMeta as defaultReleaseMeta, type Decision, type ReleaseMeta } from "@/lib/mock-data"
 import { cn } from "@/lib/utils"
 
 export function ReleaseHeader({
   decision,
+  releaseMeta = defaultReleaseMeta,
   onToggleDecision,
   onAnalyzeChange,
   onRunChecks,
   isLoading = false,
 }: {
   decision: Decision
+  releaseMeta?: ReleaseMeta
   onToggleDecision: () => void
   onAnalyzeChange?: () => void
   onRunChecks?: () => void

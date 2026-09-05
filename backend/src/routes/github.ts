@@ -1,6 +1,7 @@
 import { Router, type Request } from "express"
 import type { LatestReleaseState } from "../types/index.js"
 import { getGitHubStatus, getLatestReleaseState, processPushWebhook, runDemoPipeline, verifyWebhookSignature } from "../services/github.js"
+import { logger } from "../utils/logger.js"
 
 interface RawBodyRequest extends Request {
   rawBody?: Buffer
@@ -53,8 +54,32 @@ githubRouter.post("/api/github/webhook", async (req: Request, res, next) => {
       return
     }
 
-    const result = await processPushWebhook(req.body as Record<string, unknown>)
-    res.status(200).json({ received: true, status: result.status, decision: result.releaseDecision })
+    const payload = req.body as {
+      ref?: string
+      before?: string
+      after?: string
+      repository?: { full_name?: string; name?: string; owner?: { login?: string; name?: string } }
+    }
+    const branch = payload.ref?.replace("refs/heads/", "") ?? "main"
+    const repository =
+      payload.repository?.full_name ??
+      `${payload.repository?.owner?.login ?? payload.repository?.owner?.name ?? "unknown"}/${payload.repository?.name ?? "unknown"}`
+
+    void processPushWebhook(payload as Parameters<typeof processPushWebhook>[0]).catch((error) => {
+      // processPushWebhook records normal pipeline failures in latest state; this guard catches unexpected defects.
+      logger.error("Webhook background processing crashed", {
+        error: error instanceof Error ? error.message : "unknown",
+      })
+    })
+
+    res.status(200).json({
+      received: true,
+      status: "received",
+      repository,
+      branch,
+      before: payload.before,
+      after: payload.after,
+    })
   } catch (error) {
     next(error)
   }
