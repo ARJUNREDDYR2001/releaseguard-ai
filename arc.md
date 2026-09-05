@@ -294,7 +294,7 @@ backend/src/services/test-generation.ts
 
 It:
 
-- Ask Gemini for test file content
+- Asks Gemini for test file content
 - Falls back to deterministic demo generated tests when Gemini is missing/fails
 - Generates unit, API, UI/Playwright, and performance/k6 artifacts when relevant
 - Sanitizes paths and writes only inside `generated-tests/`
