@@ -68,7 +68,7 @@ web_modules/
 # dotenv environment variable files
 .env
 .env.*
-!.env.example
+.env.example
 
 # parcel-bundler cache (https://parceljs.org/)
 .cache
@@ -77,6 +77,10 @@ web_modules/
 # Next.js build output
 .next
 out
+
+# ReleaseGuard generated review artifacts
+generated-tests/*
+!generated-tests/.gitkeep
 
 # Nuxt.js build / generate output
 .nuxt
@@ -141,3 +145,5 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+.env
+**/.env

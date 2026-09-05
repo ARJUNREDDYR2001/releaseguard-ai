@@ -1,0 +1,26 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    ports:
+      - "4000:4000"
+    env_file:
+      - path: ./backend/.env
+        required: false
+    environment:
+      PORT: 4000
+      FRONTEND_URL: http://localhost:3000
+      GEMINI_MODEL: gemini-flash-latest
+      GENERATED_TESTS_DIR: /app/generated-tests
+    volumes:
+      - ./generated-tests:/app/generated-tests
+
+  frontend:
+    build:
+      context: ./frontend
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:4000
+    depends_on:
+      - backend
