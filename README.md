@@ -1,38 +1,83 @@
 # ReleaseGuard AI
 
-ReleaseGuard AI is an autonomous quality engineering demo for modern AI-era delivery. It accepts GitHub push events, analyzes the diff, recommends tests, runs a deterministic quality pipeline, correlates runtime evidence, and returns an explainable GO / REVIEW / NO-GO release decision.
+ReleaseGuard AI is a hackathon demo for autonomous release quality. It receives real GitHub push webhooks, fetches the real GitHub compare diff, analyzes the change with Gemini or deterministic fallback logic, generates test artifacts, runs quality gates, performs a real Playwright self-healing flow for the demo checkout locator scenario, and updates a dashboard with an explainable GO / REVIEW / NO-GO decision.
 
 ## Architecture
 
-- `frontend/`: existing Next.js dashboard from v0, lightly connected to backend APIs.
-- `backend/`: Node.js, TypeScript, Express API for webhook ingestion, Gemini analysis, quality orchestration, root-cause analysis, and deterministic release decisions.
-- `docker-compose.yml`: runs frontend on `3000` and backend on `4000`.
+- `frontend/`: Next.js dashboard on `http://localhost:3000`.
+- `backend/`: TypeScript Express API on `http://localhost:4000`.
+- `playwright-runner/`: dedicated Docker service for real Playwright execution.
+- `demo-app/`: isolated payment HTML fixture and stale checkout Playwright spec.
+- `generated-tests/`: generated review artifacts.
+- `playwright-runs/`: ignored scratch workspaces shared by backend and runner.
+- `docker-compose.yml`: starts frontend, backend, and Playwright runner.
+
+Core flow:
+
+```text
+GitHub push
+↓
+POST /api/github/webhook
+↓
+GitHub Compare API
+↓
+Gemini change analysis or deterministic fallback
+↓
+Impacted test selection
+↓
+Generated test artifacts
+↓
+Real Playwright original test run for demo locator changes
+↓
+Failure classification and locator repair
+↓
+Real Playwright healed rerun
+↓
+Runtime/Prometheus/log demo evidence
+↓
+Root cause
+↓
+Deterministic release decision
+↓
+Dashboard polling /api/github/latest
+```
+
+## What Is Real
+
+- GitHub push webhook ingestion.
+- GitHub Compare API diff retrieval.
+- Gemini analysis when `GEMINI_API_KEY` is configured.
+- Deterministic fallback when Gemini is unavailable.
+- Generated test files under `generated-tests/`.
+- Real Playwright execution for the `demo-app/payment.html` locator-change demo.
+- Real pass/fail/not-run reporting for generated test execution boundaries.
+- Deterministic GO / REVIEW / NO-GO release decision rules.
+
+## What Is Demo/Simulated
+
+- Unit/API/accessibility/security/performance quality gate numbers.
+- Kubernetes runtime state.
+- Prometheus metrics.
+- Application logs.
+- OWASP/ZAP scanning.
+- k6 load execution unless separately installed/configured.
+- Persisted release history or PR creation.
 
 ## Technology Stack
 
 - Frontend: Next.js, React, TypeScript, Tailwind CSS
 - Backend: Node.js, Express, TypeScript
-- AI provider: Google Gemini, with deterministic demo fallback
-- Tests: Vitest for backend decision/root-cause/self-healing logic
-- Local orchestration: Docker Compose
+- AI: Google Gemini through `@google/genai`
+- UI execution: Playwright runner service using the official Playwright Docker image
+- Backend tests: Vitest
+- Orchestration: Docker Compose
 
-## Local Setup
+## Quick Start
 
-Backend:
-
-```bash
-cd backend
-npm install
-npm run build
-npm start
-```
-
-Frontend:
+From the project root:
 
 ```bash
-cd frontend
-pnpm install
-pnpm run dev
+docker compose up --build
 ```
 
 Open:
@@ -41,208 +86,310 @@ Open:
 http://localhost:3000
 ```
 
-Backend health:
+Health:
 
 ```text
 http://localhost:4000/health
 ```
 
-## Docker Setup
-
-From the project root:
+Follow logs:
 
 ```bash
-docker compose up --build
+docker compose logs -f backend playwright-runner
 ```
-
-Then open:
-
-```text
-http://localhost:3000
-http://localhost:4000/health
-```
-
-The backend `.env` file is optional for demo mode. To use real integrations:
-
-```bash
-cp backend/.env.example backend/.env
-```
-
-Then set `GEMINI_API_KEY` in `backend/.env`. Do not put this key in frontend `.env` files or any `NEXT_PUBLIC_*` variable.
 
 ## Environment Variables
 
-```text
+Backend-only variables:
+
+```env
 PORT=4000
+FRONTEND_URL=http://localhost:3000
 GEMINI_API_KEY=
 GEMINI_MODEL=gemini-flash-latest
 GITHUB_TOKEN=
 GITHUB_OWNER=ARJUNREDDYR2001
 GITHUB_REPO=releaseguard-ai
 GITHUB_WEBHOOK_SECRET=
-FRONTEND_URL=http://localhost:3000
-NEXT_PUBLIC_API_URL=http://localhost:4000
-GENERATED_TESTS_DIR=
+GENERATED_TESTS_DIR=/app/generated-tests
+PLAYWRIGHT_RUNNER_URL=http://playwright-runner:4050
+PLAYWRIGHT_RUNS_DIR=/app/playwright-runs
 ```
 
-Secrets stay backend-only. `GEMINI_API_KEY` and `GITHUB_TOKEN` are never exposed to the frontend.
+Frontend variable:
 
-## API
+```env
+NEXT_PUBLIC_API_URL=http://localhost:4000
+```
 
-- `GET /health`
-- `GET /api/github/status`
-- `GET /api/github/latest`
-- `POST /api/github/webhook`
-- `POST /api/github/demo`
-- `POST /api/analyze-change`
-- `POST /api/run-quality`
-- `POST /api/root-cause`
-- `POST /api/release-decision`
-- `POST /api/generate-tests`
-- `GET /api/generated-tests`
-- `GET /api/generated-tests/:type/:filename`
+Secrets must stay backend-only. Do not put `GEMINI_API_KEY`, `GITHUB_TOKEN`, or webhook secrets in frontend env files or any `NEXT_PUBLIC_*` variable.
 
-## GitHub Webhook Flow
+## API Endpoints
 
-1. Developer pushes code.
-2. GitHub sends a push event to `POST /api/github/webhook`.
-3. Backend extracts repository, branch, before/after SHAs, commits, and changed files.
-4. Backend calls GitHub compare API: `GET /repos/{owner}/{repo}/compare/{before}...{after}`.
-5. Gemini analyzes the diff when `GEMINI_API_KEY` is configured.
-6. Demo fallback data is used if Gemini or GitHub tokens are missing.
-7. Generated test files are written under `generated-tests/` for human review.
-8. Quality checks, generated-test execution status, self-healing, runtime health, root cause, and release decision are stored in memory.
-9. Frontend reads the latest release state.
-
-## Webhook Security
-
-If `GITHUB_WEBHOOK_SECRET` is set, the backend validates `X-Hub-Signature-256` using HMAC SHA256. If no secret is configured, webhook signature validation is disabled for hackathon demo mode and the backend logs that clearly.
+```text
+GET  /health
+GET  /api/github/status
+GET  /api/github/latest
+POST /api/github/webhook
+POST /api/github/demo
+POST /api/analyze-change
+POST /api/generate-tests
+GET  /api/generated-tests
+GET  /api/generated-tests/:type/:filename
+POST /api/run-quality
+POST /api/root-cause
+POST /api/release-decision
+```
 
 ## GitHub Webhook Setup
 
-1. Start Docker Compose.
-2. Expose backend port `4000` using ngrok, localtunnel, or a similar HTTPS tunnel.
-3. Copy the public HTTPS URL.
-4. Open your GitHub repository.
-5. Go to Settings.
-6. Go to Webhooks.
-7. Add webhook.
-8. Payload URL:
+Start Docker:
 
-```text
-https://YOUR_PUBLIC_URL/api/github/webhook
+```bash
+docker compose up --build
 ```
 
-9. Content type: `application/json`
-10. Select: `Just the push event`
-11. Enable Active.
-12. Save.
+Expose backend port `4000`:
 
-## Gemini Usage
-
-Gemini is used by `/api/analyze-change` and the webhook pipeline to summarize code changes, affected files, affected capabilities, business impact, tests to update, tests to generate, and recommended checks. If `GEMINI_API_KEY` is missing or Gemini returns malformed data, ReleaseGuard returns deterministic payment-demo JSON instead of crashing.
-
-## Quality Engine
-
-`POST /api/run-quality` returns structured results for:
-
-- Unit
-- API
-- UI
-- Accessibility
-- Security
-- Performance
-- Runtime / Infrastructure
-
-The current MVP uses deterministic demo results. The service boundaries are ready for Vitest, Playwright, axe-core, OWASP ZAP, k6, Kubernetes, and Prometheus integrations.
-
-## Self-Healing
-
-The MVP demonstrates locator healing:
-
-```text
-#pay-now -> [data-testid='complete-payment']
+```bash
+npx localtunnel --port 4000
 ```
 
-The backend only auto-heals when confidence is `>= 0.90`. Lower confidence returns `requiresReview: true`.
-
-## Autonomous Test Generation
-
-ReleaseGuard AI now creates real generated test artifacts from analyzed diffs:
+In GitHub repository settings, add a webhook:
 
 ```text
-GitHub diff
-↓
-Gemini change analysis
-↓
-Test strategy
-↓
-Generated test files
-↓
-Human review
-↓
-Optional execution
+Payload URL: https://<localtunnel-domain>/api/github/webhook
+Content type: application/json
+Event: Just the push event
+Active: yes
 ```
 
-Generated tests are written only under:
+If `GITHUB_WEBHOOK_SECRET` is set in `backend/.env`, use the same secret in GitHub. If it is not set, signature validation is disabled for demo mode and the backend logs that clearly.
+
+## Demo App
+
+The isolated fixture lives in:
+
+```text
+demo-app/payment.html
+demo-app/checkout.spec.ts
+```
+
+Before-state:
+
+```html
+<button id="pay-now">Pay Now</button>
+```
+
+Existing test:
+
+```ts
+await expect(page.locator('#pay-now')).toBeVisible()
+```
+
+Demo change:
+
+```html
+<button data-testid="complete-payment">Complete Payment</button>
+```
+
+The stale test should remain unchanged. That is what makes the original Playwright run fail for real.
+
+## Real Playwright Self-Healing
+
+For the payment locator demo, the backend fetches the pushed commit versions of:
+
+```text
+demo-app/payment.html
+demo-app/checkout.spec.ts
+```
+
+It writes an isolated workspace under `playwright-runs/`, asks `playwright-runner` to run the original test, captures the real Playwright failure, classifies the failure, generates a healed test artifact, and reruns the healed test.
+
+Self-healing thresholds:
+
+```text
+>= 0.90   automatic healing
+0.70-0.89 review
+< 0.70    no healing
+```
+
+Self-healing is successful only when the repaired test is actually executed by Playwright and passes. A Gemini suggestion alone is not enough.
+
+Do not self-heal when evidence points to:
+
+- API `500` / `503`
+- backend failure
+- business assertion failure
+- application crash
+- infrastructure issue
+
+Structured Playwright result:
+
+```json
+{
+  "status": "passed | failed | not_run",
+  "testFile": "demo-app/checkout.spec.ts",
+  "testName": "finds the legacy payment button",
+  "error": "Playwright failure message",
+  "durationMs": 1234,
+  "healingAttempted": true,
+  "healingConfidence": 0.97,
+  "originalLocator": "#pay-now",
+  "healedLocator": "[data-testid=\"complete-payment\"]",
+  "healedTestStatus": "passed"
+}
+```
+
+The generated healed artifact is written to:
+
+```text
+generated-tests/ui/checkout.healed.spec.ts
+```
+
+## Demo Script
+
+Start everything:
+
+```bash
+docker compose up --build
+```
+
+Open the dashboard:
+
+```text
+http://localhost:3000
+```
+
+Watch logs:
+
+```bash
+docker compose logs -f backend playwright-runner
+```
+
+Expose the backend:
+
+```bash
+npx localtunnel --port 4000
+```
+
+Set the GitHub webhook URL to:
+
+```text
+https://<localtunnel-domain>/api/github/webhook
+```
+
+Create the demo branch:
+
+```bash
+git checkout -b demo/payment-locator-change origin/main
+```
+
+Keep `demo-app/checkout.spec.ts` using:
+
+```text
+#pay-now
+```
+
+Change `demo-app/payment.html` to:
+
+```html
+<button data-testid="complete-payment">Complete Payment</button>
+```
+
+Push:
+
+```bash
+git add demo-app/payment.html
+git commit -m "Demo payment locator change"
+git push -u origin demo/payment-locator-change
+```
+
+Expected backend/runner logs:
+
+```text
+[GitHub Webhook] Push received
+[GitHub] Fetching compare diff...
+[GitHub] Changed files
+Real Playwright UI quality started
+Original Playwright test failed on #pay-now
+TEST_AUTOMATION_ISSUE
+Generated healed test
+Healed Playwright rerun passed
+Webhook pipeline completed
+```
+
+Expected dashboard:
+
+```text
+Branch: demo/payment-locator-change
+Changed file: demo-app/payment.html
+Original Playwright: failed
+Healed rerun: passed
+Old locator: #pay-now
+New locator: [data-testid="complete-payment"]
+Confidence: 97%
+Final decision: GO / REVIEW / NO-GO from deterministic gates
+```
+
+## Generated Tests
+
+Generated artifacts are isolated under:
 
 ```text
 generated-tests/
 ```
 
-Current generated types:
+Examples:
 
-- Unit tests with Vitest
-- API tests with Vitest-style contract checks
-- UI tests with Playwright
-- Performance scripts with k6
+```text
+generated-tests/ui/checkout.spec.ts
+generated-tests/ui/checkout.healed.spec.ts
+generated-tests/api/payment.api.test.ts
+generated-tests/unit/paymentService.test.ts
+generated-tests/performance/payment-load.js
+```
 
-ReleaseGuard AI does not automatically commit generated tests. Generated tests are isolated for human review.
-
-Preview APIs:
+Preview:
 
 ```text
 GET /api/generated-tests
-GET /api/generated-tests/ui/checkout.spec.ts
+GET /api/generated-tests/ui/checkout.healed.spec.ts
 ```
 
-Execution is honest: generated tests execute only when the tool is available and the generated artifact does not require review. Otherwise the backend returns `not_run` with a reason. Demo quality checks remain separate from real generated-test execution.
-
-## Runtime, Prometheus, And Logs
-
-Kubernetes and Prometheus are represented through deterministic demo services. Kubernetes covers pod readiness, replica counts, restarts, OOMKilled, and CrashLoopBackOff. Prometheus covers request count, error rate, CPU, memory, latency, and pod restarts. Logs are correlated in root-cause analysis but Prometheus is used only for metrics.
+ReleaseGuard does not commit, push, or open pull requests automatically. Generated tests are review artifacts.
 
 ## Release Decision
 
-The LLM does not decide deployment. `POST /api/release-decision` uses deterministic rules:
+The LLM does not decide deployment. The backend uses deterministic rules:
 
-- NO-GO for critical security, required test failures, unhealthy runtime, critical application defects, or severe performance breaches.
-- REVIEW for elevated risk, warnings, or low-confidence self-healing.
-- GO when required gates pass, runtime is healthy, performance thresholds pass, and self-healing confidence is high.
+- `NO-GO` for critical security, required failures, unhealthy runtime, critical application defects, or severe performance breaches.
+- `REVIEW` for elevated risk, warnings, or low-confidence/failed self-healing.
+- `GO` when required gates pass, runtime is healthy, performance thresholds pass, and any self-healing was validated by a passing rerun.
 
-## Demo Flow
+## Local Checks
 
-The built-in payment scenario changes:
+Backend:
 
-```tsx
-<button id="pay-now">Pay Now</button>
+```bash
+cd backend
+npm install
+npm run build
+npm test
 ```
 
-to:
+Frontend:
 
-```tsx
-<button data-testid="complete-payment">Complete Payment</button>
+```bash
+cd frontend
+pnpm install
+pnpm run build
 ```
 
-ReleaseGuard detects payment and checkout impact, updates `checkout.spec.ts`, heals the locator, checks runtime metrics, and returns a final GO in the success demo.
-It also writes generated review artifacts such as `generated-tests/ui/checkout.spec.ts`, which uses `page.getByTestId('complete-payment')`.
+Playwright runner:
 
-Failure scenario:
-
-- Payment API returns `503`
-- `payment-service` has `1/3` pods ready
-- 8 pod restarts
-- Memory at `98%`
-- Logs contain `OutOfMemoryError`
-
-Root cause is classified as `INFRASTRUCTURE`, and the final decision is `NO-GO`.
+```bash
+cd playwright-runner
+npm install
+npm start
+```
