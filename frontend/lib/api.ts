@@ -34,6 +34,36 @@ export interface BackendQualityResults {
     confidence: number
     reason: string
     requiresReview?: boolean
+    originalTestStatus?: "passed" | "failed" | "not_run"
+    healedTestStatus?: "passed" | "failed" | "not_run"
+  }
+  playwright?: {
+    status: "passed" | "failed" | "not_run"
+    testFile: string
+    testName?: string
+    error?: string
+    durationMs: number
+    healingAttempted: boolean
+    healingConfidence: number
+    originalLocator?: string
+    healedLocator?: string
+    healedTestStatus?: "passed" | "failed" | "not_run"
+    classification?: string
+    generatedTestPath?: string
+    originalRun?: {
+      status: "passed" | "failed" | "not_run"
+      testFile: string
+      testName?: string
+      error?: string
+      durationMs: number
+    }
+    healedRun?: {
+      status: "passed" | "failed" | "not_run"
+      testFile: string
+      testName?: string
+      error?: string
+      durationMs: number
+    }
   }
   rootCause: {
     category: string
@@ -178,13 +208,23 @@ export function mapQualityToTestStrategy(quality: BackendQualityResults): TestSt
 }
 
 export function mapQualityToSelfHealing(quality: BackendQualityResults): SelfHealing {
+  const playwright = quality.playwright
   return {
-    failure: "Automation failure detected",
+    failure: playwright?.originalRun?.status === "failed" ? "Real Playwright failure captured" : "Automation result",
     oldLocator: quality.selfHealing.oldLocator,
     newLocator: quality.selfHealing.newLocator ?? "Requires review",
     confidence: Math.round(quality.selfHealing.confidence * 100),
-    status: quality.selfHealing.healed ? "Healed and re-tested" : "Review required",
-    steps: ["Failure", "AI analysis", "Locator repair", "Re-test", quality.selfHealing.healed ? "PASS" : "REVIEW"],
+    status: quality.selfHealing.healed ? "Healed and re-tested" : quality.selfHealing.requiresReview ? "Review required" : "No healing",
+    playwrightStatus: playwright?.originalRun?.status ?? playwright?.status,
+    healedTestStatus: playwright?.healedTestStatus,
+    error: playwright?.error,
+    steps: [
+      playwright?.originalRun?.status === "failed" ? "FAIL" : "Run",
+      "AI analysis",
+      quality.selfHealing.attempted ? "Locator repair" : "No repair",
+      "Re-test",
+      quality.selfHealing.healed ? "PASS" : quality.selfHealing.requiresReview ? "REVIEW" : "DONE",
+    ],
   }
 }
 

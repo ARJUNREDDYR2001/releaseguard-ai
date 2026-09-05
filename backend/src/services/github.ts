@@ -6,7 +6,8 @@ import { DEMO_DIFF, extractChangedFiles } from "./git-diff.js"
 import { identifyImpactedTests } from "./test-analysis.js"
 import { runQualityPipelineWithGeneratedTests } from "./quality-engine.js"
 import { decideRelease } from "./release-decision.js"
-import { generateTests } from "./test-generation.js"
+import { generateTests, listGeneratedTests } from "./test-generation.js"
+import { shouldRunRealPlaywrightUi, type UiWorkspaceFile } from "./playwright-ui-quality.js"
 
 interface GitHubCommitFile {
   filename?: string
@@ -148,6 +149,58 @@ async function fetchCompareMetadata(owner: string, repo: string, base: string, a
   return (await response.json()) as GitHubCompareResponse
 }
 
+function githubContentPath(filePath: string): string {
+  return filePath
+    .split("/")
+    .map((part) => encodeURIComponent(part))
+    .join("/")
+}
+
+async function fetchRepositoryFile(owner: string, repo: string, filePath: string, ref: string): Promise<string> {
+  const headers: Record<string, string> = {
+    Accept: "application/vnd.github.raw",
+    "User-Agent": "releaseguard-ai",
+  }
+
+  if (process.env.GITHUB_TOKEN) {
+    headers.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`
+  }
+
+  const response = await fetch(
+    `https://api.github.com/repos/${owner}/${repo}/contents/${githubContentPath(filePath)}?ref=${encodeURIComponent(ref)}`,
+    { headers },
+  )
+  if (!response.ok) {
+    throw new Error(`GitHub file fetch failed for ${filePath} with ${response.status}`)
+  }
+
+  return response.text()
+}
+
+async function fetchPlaywrightWorkspaceFiles(
+  owner: string,
+  repo: string,
+  after: string,
+  changedFiles: string[],
+): Promise<UiWorkspaceFile[] | undefined> {
+  if (!shouldRunRealPlaywrightUi(changedFiles)) return undefined
+
+  logger.info("Fetching Playwright UI workspace files", {
+    files: ["demo-app/payment.html", "demo-app/checkout.spec.ts"],
+    ref: after,
+  })
+
+  const [paymentHtml, checkoutSpec] = await Promise.all([
+    fetchRepositoryFile(owner, repo, "demo-app/payment.html", after),
+    fetchRepositoryFile(owner, repo, "demo-app/checkout.spec.ts", after),
+  ])
+
+  return [
+    { path: "demo-app/payment.html", content: paymentHtml },
+    { path: "demo-app/checkout.spec.ts", content: checkoutSpec },
+  ]
+}
+
 function extractWebhookFiles(payload: PushPayload): string[] {
   const files = new Set<string>()
   for (const commit of payload.commits ?? []) {
@@ -206,7 +259,18 @@ export async function processPushWebhook(payload: PushPayload): Promise<LatestRe
     const scenario = diff.toLowerCase().includes("failure-scenario") ? "failure" : "success"
     const finalAnalysis = analysis
     const generatedTests = await generateTests(finalAnalysis, diff || DEMO_DIFF)
-    const qualityResults = await runQualityPipelineWithGeneratedTests(scenario, generatedTests.tests)
+    const uiWorkspaceFiles = await fetchPlaywrightWorkspaceFiles(owner, repo, after, changedFiles)
+    const qualityResults = await runQualityPipelineWithGeneratedTests(scenario, generatedTests.tests, {
+      diff: diff || DEMO_DIFF,
+      changedFiles,
+      uiWorkspaceFiles,
+    })
+    if (qualityResults.playwright?.generatedTestPath) {
+      const generatedAfterQuality = await listGeneratedTests()
+      const existingPaths = new Set(generatedTests.tests.map((test) => test.path))
+      generatedTests.tests.push(...generatedAfterQuality.filter((test) => !existingPaths.has(test.path)))
+      generatedTests.generatedCount = generatedTests.tests.length
+    }
     const rootCause = qualityResults.rootCause
     const releaseDecision = decideRelease({ analysis: finalAnalysis, qualityResults, rootCause })
 

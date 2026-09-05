@@ -2,6 +2,7 @@ export type RiskLevel = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL"
 export type ReleaseDecision = "GO" | "REVIEW" | "NO-GO"
 export type CheckStatus = "passed" | "failed" | "warning"
 export type RootCauseCategory =
+  | "TEST_AUTOMATION_ISSUE"
   | "TEST_AUTOMATION"
   | "APPLICATION"
   | "INFRASTRUCTURE"
@@ -46,6 +47,8 @@ export interface SelfHealingResult {
   confidence: number
   reason: string
   requiresReview?: boolean
+  originalTestStatus?: "passed" | "failed" | "not_run"
+  healedTestStatus?: "passed" | "failed" | "not_run"
 }
 
 export interface QualityCheck {
@@ -87,10 +90,40 @@ export interface TestExecutionResult {
   path: string
   framework: string
   status: "passed" | "failed" | "not_run"
+  testFile?: string
+  testName?: string
+  error?: string
   reason?: string
   durationMs?: number
   stdout?: string
   stderr?: string
+}
+
+export interface PlaywrightRunResult {
+  status: "passed" | "failed" | "not_run"
+  testFile: string
+  testName?: string
+  error?: string
+  durationMs: number
+  stdout?: string
+  stderr?: string
+}
+
+export interface PlaywrightHealingResult {
+  status: "passed" | "failed" | "not_run"
+  testFile: string
+  testName?: string
+  error?: string
+  durationMs: number
+  healingAttempted: boolean
+  healingConfidence: number
+  originalLocator?: string
+  healedLocator?: string
+  healedTestStatus?: "passed" | "failed" | "not_run"
+  classification?: RootCauseCategory
+  generatedTestPath?: string
+  originalRun?: PlaywrightRunResult
+  healedRun?: PlaywrightRunResult
 }
 
 export interface GeneratedTestsExecutionSummary {
@@ -161,6 +194,7 @@ export interface QualityResults {
   runtimeHealth: RuntimeHealth
   prometheus: PrometheusHealth
   generatedTests?: GeneratedTestsExecutionSummary
+  playwright?: PlaywrightHealingResult
 }
 
 export interface ReleaseDecisionResult {

@@ -81,6 +81,7 @@ out
 # ReleaseGuard generated review artifacts
 generated-tests/*
 !generated-tests/.gitkeep
+playwright-runs/
 
 # Nuxt.js build / generate output
 .nuxt

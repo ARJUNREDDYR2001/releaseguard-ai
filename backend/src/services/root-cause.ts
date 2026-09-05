@@ -48,9 +48,9 @@ export function analyzeRootCause(input: RootCauseInput = {}): RootCauseResult {
     }
   }
 
-  if ((input.testFailures ?? []).some((failure) => /locator|selector|playwright/i.test(failure))) {
+  if ((input.testFailures ?? []).some((failure) => /locator|selector|playwright|strict mode violation|waiting for/i.test(failure))) {
     return {
-      category: "TEST_AUTOMATION",
+      category: "TEST_AUTOMATION_ISSUE",
       confidence: 0.91,
       summary: "UI automation broke because the payment button locator changed.",
       evidence: ["Playwright locator failure detected.", "Self-healing found a high-confidence replacement locator."],

@@ -3,7 +3,7 @@ import { healLocator } from "../services/self-healing.js"
 
 describe("self-healing", () => {
   it("heals payment locator changes with high confidence", () => {
-    const result = healLocator("#pay-now", ["[data-testid='complete-payment']"])
+    const result = healLocator("#pay-now", ['[data-testid="complete-payment"]'])
 
     expect(result.healed).toBe(true)
     expect(result.confidence).toBeGreaterThanOrEqual(0.9)

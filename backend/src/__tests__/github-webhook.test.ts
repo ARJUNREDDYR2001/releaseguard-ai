@@ -90,7 +90,7 @@ describe("GitHub webhook processing", () => {
       expect.objectContaining({
         healed: true,
         oldLocator: "#pay-now",
-        newLocator: "[data-testid='complete-payment']",
+        newLocator: '[data-testid="complete-payment"]',
         confidence: 0.97,
       }),
     )

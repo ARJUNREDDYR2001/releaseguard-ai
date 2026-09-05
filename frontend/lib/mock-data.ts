@@ -57,6 +57,9 @@ export interface SelfHealing {
   newLocator: string
   confidence: number
   status: string
+  playwrightStatus?: string
+  healedTestStatus?: string
+  error?: string
   steps: string[]
 }
 

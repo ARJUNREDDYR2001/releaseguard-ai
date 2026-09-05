@@ -1,9 +1,12 @@
-import { Wrench, ArrowDown, TriangleAlert, ScanSearch, CircleCheck } from "lucide-react"
+import { Wrench, ArrowDown, TriangleAlert, ScanSearch, CircleCheck, CircleX } from "lucide-react"
 import { selfHealing, type SelfHealing as SelfHealingData } from "@/lib/mock-data"
 import { Button } from "@/components/ui/button"
 import { Panel, SectionTitle } from "./primitives"
+import { cn } from "@/lib/utils"
 
 export function SelfHealing({ data = selfHealing }: { data?: SelfHealingData }) {
+  const healed = data.healedTestStatus === "passed" || data.status.toLowerCase().includes("healed")
+
   return (
     <Panel className="flex h-full flex-col">
       <SectionTitle
@@ -12,8 +15,15 @@ export function SelfHealing({ data = selfHealing }: { data?: SelfHealingData }) 
         icon={Wrench}
         tone="ai"
         action={
-          <span className="flex items-center gap-1.5 rounded-full border border-success/30 bg-success/10 px-2.5 py-1 text-[11px] font-medium text-success">
-            <CircleCheck className="size-3.5" />
+          <span
+            className={cn(
+              "flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium",
+              healed
+                ? "border-success/30 bg-success/10 text-success"
+                : "border-warning/30 bg-warning/10 text-warning",
+            )}
+          >
+            {healed ? <CircleCheck className="size-3.5" /> : <TriangleAlert className="size-3.5" />}
             {data.status}
           </span>
         }
@@ -60,12 +70,44 @@ export function SelfHealing({ data = selfHealing }: { data?: SelfHealingData }) 
           <div className="text-sm">
             <span className="text-muted-foreground">Confidence </span>
             <span className="font-mono font-semibold text-foreground">{data.confidence}%</span>
-            <span className="ml-2 text-success">· Healed &amp; re-tested</span>
+            <span className={cn("ml-2", healed ? "text-success" : "text-warning")}>
+              · {data.healedTestStatus ? `Healed test ${data.healedTestStatus}` : data.status}
+            </span>
           </div>
           <Button variant="outline" size="sm" className="bg-transparent">
             View repair
           </Button>
         </div>
+
+        {data.playwrightStatus ? (
+          <div className="mt-3 rounded-lg border border-border bg-background/40 p-3">
+            <div className="grid gap-2 text-xs sm:grid-cols-2">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-muted-foreground">Original Playwright</span>
+                <span
+                  className={cn(
+                    "flex items-center gap-1 font-mono font-medium",
+                    data.playwrightStatus === "failed" ? "text-destructive" : "text-success",
+                  )}
+                >
+                  {data.playwrightStatus === "failed" ? <CircleX className="size-3.5" /> : <CircleCheck className="size-3.5" />}
+                  {data.playwrightStatus}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-muted-foreground">Healed rerun</span>
+                <span className={cn("font-mono font-medium", data.healedTestStatus === "passed" ? "text-success" : "text-warning")}>
+                  {data.healedTestStatus ?? "not_run"}
+                </span>
+              </div>
+            </div>
+            {data.error ? (
+              <pre className="mt-3 max-h-24 overflow-auto rounded-md border border-border bg-background/70 p-2 text-[10px] leading-relaxed text-muted-foreground">
+                <code>{data.error}</code>
+              </pre>
+            ) : null}
+          </div>
+        ) : null}
       </div>
     </Panel>
   )

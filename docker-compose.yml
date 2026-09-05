@@ -12,8 +12,13 @@ services:
       FRONTEND_URL: http://localhost:3000
       GEMINI_MODEL: gemini-flash-latest
       GENERATED_TESTS_DIR: /app/generated-tests
+      PLAYWRIGHT_RUNNER_URL: http://playwright-runner:4050
+      PLAYWRIGHT_RUNS_DIR: /app/playwright-runs
     volumes:
       - ./generated-tests:/app/generated-tests
+      - ./playwright-runs:/app/playwright-runs
+    depends_on:
+      - playwright-runner
 
   frontend:
     build:
@@ -24,3 +29,12 @@ services:
       NEXT_PUBLIC_API_URL: http://localhost:4000
     depends_on:
       - backend
+
+  playwright-runner:
+    build:
+      context: ./playwright-runner
+    environment:
+      PORT: 4050
+      PLAYWRIGHT_RUNS_DIR: /workspace/runs
+    volumes:
+      - ./playwright-runs:/workspace/runs
